@@ -2,8 +2,10 @@
 
 start:
 	@if [ ! -d "pox" ]; then git clone https://github.com/noxrepo/pox.git; fi
+	sudo apt-get install mininet
+	sudo apt install neovim
 
-run: start
+run: 
 	cp ./load_balancer.py ./pox/ext/
 	cd pox && python3 pox.py openflow.of_01 --port=6633 load_balancer
 
