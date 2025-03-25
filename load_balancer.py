@@ -1,5 +1,6 @@
 from pox.core import core
 import pox.openflow.libopenflow_01 as of
+from pox.lib.packet.arp import arp, ethernet
 from pox.lib.addresses import IPAddr, EthAddr
 
 log = core.getLogger()
@@ -29,29 +30,38 @@ def swap_server():
 
 
 def arp_handler(event):
-
     log.info(f"PRINTIN CONNECTIONS")
-    for con in core.openflow.connections:
-        log.info(f"CONN = {con}")
     packet = event.parsed
     if packet.type == packet.ARP_TYPE:
-        arp = packet.find("arp")
-        if arp is not None and arp.opcode == arp.REQUEST:
+        arp_request = packet.find("arp")
+        if arp_request is not None and arp_request.opcode == arp_request.REQUEST:
             log.info(
-                f"ARP request: Who has {arp.protodst}? Tell {arp.protosrc}, src = {arp.src}, dest = {arp.dest}"
+                f"ARP request: Who has {arp_request.protodst}? Tell {arp_request.protosrc}, src = {arp_request.src}, dest = {arp_request.dest}"
             )
+            if arp_request.protodst == virtual_ip:
+                eth_addr = ip_to_mac[next_server]
+                ip_addr = next_server
+                swap_server()
+                # TODO: add flows
+            else:
+                eth_addr = ip_to_mac[arp_request.protodst]
+                ip_addr = arp_request.protodst
 
-            # if arp.src == virtual_ip:
-            #     assert False, "TODO"
-            # else:
-            # arp_reply = of.ofp_packet_out()
-
-            # Fill in your ARP resolution logic here
-            # Example:
-            # if arp.protodst == IPAddr("192.168.1.1"):
-            #     arp_reply = of.ofp_packet_out()
-            #     arp_reply.data = ...
-            #     event.connection.send(arp_reply)
+            arp_reply = arp()
+            arp_reply.hwsrc = eth_addr
+            arp_reply.hwdst = packet.src
+            arp_reply.opcode = arp_request.REPLY
+            arp_reply.protosrc = ip_addr
+            arp_reply.protodst = packet.payload.protosrc
+            ether = ethernet()
+            ether.type = ethernet.ARP_TYPE
+            ether.dst = packet.src
+            ether.src = eth_addr
+            ether.payload = arp_reply
+            msg = of.ofp_packet_out()
+            msg.data = ether.pack()
+            msg.in_port = event.inport
+            event.connection.send(msg)
 
 
 # Launch POX component
