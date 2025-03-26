@@ -85,7 +85,7 @@ def arp_handler(event):
             arp_reply = arp()
             arp_reply.hwsrc = eth_addr
             arp_reply.hwdst = packet.src
-            arp_reply.opcode = arp_request.REPLY
+            arp_reply.opcode = arp.REPLY
             arp_reply.protosrc = arp_request.protodst
             arp_reply.protodst = packet.payload.protosrc
             ether = ethernet()
@@ -96,10 +96,14 @@ def arp_handler(event):
             map_response = of.ofp_packet_out()
             map_response.data = ether.pack()
             map_response.in_port = event.port
+            map_response.actions.append(of.ofp_action_output(port =
+                                                      of.OFPP_IN_PORT))
             event.connection.send(map_response)
+
 
 
 # Launch POX component
 def launch():
     core.openflow.addListenerByName("PacketIn", arp_handler)
     log.info("ARP logger running...")
+
