@@ -19,6 +19,15 @@ ip_to_mac = {
     IPAddr("10.0.0.6"): EthAddr("00:00:00:00:00:06"),
 }
 
+ip_to_port = {
+    IPAddr("10.0.0.1"): 1,
+    IPAddr("10.0.0.2"): 2,
+    IPAddr("10.0.0.3"): 3,
+    IPAddr("10.0.0.4"): 4,
+    IPAddr("10.0.0.5"): 5,
+    IPAddr("10.0.0.6"): 6,
+}
+
 
 def swap_server():
     global next_server
@@ -38,30 +47,52 @@ def arp_handler(event):
             log.info(
                 f"ARP request: Who has {arp_request.protodst}? Tell {arp_request.protosrc}, src = {arp_request.src}, dest = {arp_request.dest}"
             )
+
             if arp_request.protodst == virtual_ip:
                 eth_addr = ip_to_mac[next_server]
-                ip_addr = next_server
+                dest_ip_addr = next_server
+                map_request = of.ofp_flow_mod()
+                # msg.data = event.ofp
+                map_request.match.nw_dst = virtual_ip
+                map_request.match.nw_src = packet.src
+                map_request.actions.append(
+                    of.ofp_action_output(ip_to_port[next_server])
+                )
+                map_request.actions.append(of.ofp_action_nw_addr.set_dst(dest_ip_addr))
+                event.connection.send(map_request)
+
+                map_response_msg = of.ofp_flow_mod()
+                # msg.data = event.ofp
+                map_response_msg.match.nw_dst = packet.src
+                map_response_msg.match.nw_src = next_server
+                map_response_msg.actions.append(
+                    of.ofp_action_output(ip_to_port[packet.src])
+                )
+                map_response_msg.actions.append(
+                    of.ofp_action_nw_addr.set_src(virtual_ip)
+                )
+                event.connection.send(map_response_msg)
+
                 swap_server()
-                # TODO: add flows
             else:
                 eth_addr = ip_to_mac[arp_request.protodst]
-                ip_addr = arp_request.protodst
+                dest_ip_addr = arp_request.protodst
 
             arp_reply = arp()
             arp_reply.hwsrc = eth_addr
             arp_reply.hwdst = packet.src
             arp_reply.opcode = arp_request.REPLY
-            arp_reply.protosrc = ip_addr
+            arp_reply.protosrc = dest_ip_addr
             arp_reply.protodst = packet.payload.protosrc
             ether = ethernet()
             ether.type = ethernet.ARP_TYPE
             ether.dst = packet.src
             ether.src = eth_addr
             ether.payload = arp_reply
-            msg = of.ofp_packet_out()
-            msg.data = ether.pack()
-            msg.in_port = event.inport
-            event.connection.send(msg)
+            map_response = of.ofp_packet_out()
+            map_response.data = ether.pack()
+            map_response.in_port = event.inport
+            event.connection.send(map_response)
 
 
 # Launch POX component
