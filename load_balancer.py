@@ -30,7 +30,6 @@ ip_to_port = {
 
 
 def swap_server():
-    return
     global next_server
     if next_server == ip_5_server:
         next_server = ip_6_server
@@ -54,14 +53,14 @@ def arp_handler(event):
                 dest_ip_addr = next_server
                 map_request_flow = of.ofp_flow_mod()
                 # msg.data = event.ofp
-                #map_request_flow.match.dl_type = 0x0800
+                map_request_flow.match.dl_type = 0x0800
                 map_request_flow.match.nw_dst = virtual_ip
-                #map_request_flow.match.nw_src = src_ip
-                map_request_flow.actions.append(
-                    of.ofp_action_output(port=ip_to_port[next_server])
-                )
+                map_request_flow.match.nw_src = src_ip
                 map_request_flow.actions.append(
                     of.ofp_action_nw_addr.set_dst(dest_ip_addr)
+                )
+                map_request_flow.actions.append(
+                    of.ofp_action_output(port=ip_to_port[next_server])
                 )
                 event.connection.send(map_request_flow)
 
@@ -71,10 +70,10 @@ def arp_handler(event):
                 map_response_flow.match.nw_dst = src_ip
                 map_response_flow.match.nw_src = next_server
                 map_response_flow.actions.append(
-                    of.ofp_action_output(port=ip_to_port[src_ip])
+                    of.ofp_action_nw_addr.set_src(virtual_ip)
                 )
                 map_response_flow.actions.append(
-                    of.ofp_action_nw_addr.set_src(virtual_ip)
+                    of.ofp_action_output(port=ip_to_port[src_ip])
                 )
                 event.connection.send(map_response_flow)
 
