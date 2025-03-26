@@ -30,6 +30,7 @@ ip_to_port = {
 
 
 def swap_server():
+    return
     global next_server
     if next_server == ip_5_server:
         next_server = ip_6_server
@@ -45,17 +46,17 @@ def arp_handler(event):
         arp_request = packet.find("arp")
         if arp_request is not None and arp_request.opcode == arp_request.REQUEST:
             log.info(
-                f"ARP request: Who has {arp_request.protodst}? Tell {arp_request.protosrc}, src = {arp_request.src}, dest = {arp_request.dest}"
+                f"ARP request: Who has {arp_request.protodst}? Tell {arp_request.protosrc}"
             )
-
-            if arp_request.protodst == virtual_ip:
+            src_ip = arp_request.protosrc
+            if  arp_request.protodst == virtual_ip and src_ip not in [ip_5_server, ip_6_server]:
                 eth_addr = ip_to_mac[next_server]
                 dest_ip_addr = next_server
                 map_request_flow = of.ofp_flow_mod()
                 # msg.data = event.ofp
-                map_request_flow.match.dl_type = 0x0800
+                #map_request_flow.match.dl_type = 0x0800
                 map_request_flow.match.nw_dst = virtual_ip
-                map_request_flow.match.nw_src = packet.src
+                #map_request_flow.match.nw_src = src_ip
                 map_request_flow.actions.append(
                     of.ofp_action_output(port=ip_to_port[next_server])
                 )
@@ -67,10 +68,10 @@ def arp_handler(event):
                 map_response_flow = of.ofp_flow_mod()
                 # msg.data = event.ofp
                 map_response_flow.match.dl_type = 0x0800
-                map_response_flow.match.nw_dst = packet.src
+                map_response_flow.match.nw_dst = src_ip
                 map_response_flow.match.nw_src = next_server
                 map_response_flow.actions.append(
-                    of.ofp_action_output(port=ip_to_port[packet.src])
+                    of.ofp_action_output(port=ip_to_port[src_ip])
                 )
                 map_response_flow.actions.append(
                     of.ofp_action_nw_addr.set_src(virtual_ip)

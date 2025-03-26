@@ -4,6 +4,8 @@ start:
 	@if [ ! -d "pox" ]; then git clone https://github.com/noxrepo/pox.git; fi
 	sudo apt-get install mininet
 	sudo apt install neovim
+	cd ~ && git clone https://github.com/mininet/mininet && mininet/util/install.sh -w
+
 
 run: 
 	cp ./load_balancer.py ./pox/ext/
