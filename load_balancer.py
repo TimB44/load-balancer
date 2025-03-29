@@ -1,3 +1,8 @@
+# PA2 - Load Balancer
+#
+# Author: Tim Blamires
+# Date: 3/29/25
+#
 from pox.core import core
 import pox.openflow.libopenflow_01 as of
 from pox.lib.packet.arp import arp, ethernet
@@ -5,7 +10,6 @@ from pox.lib.addresses import IPAddr, EthAddr
 
 log = core.getLogger()
 
-last_node_used = 5
 virtual_ip = IPAddr("10.0.0.10")
 ip_5_server = IPAddr("10.0.0.5")
 ip_6_server = IPAddr("10.0.0.6")
@@ -38,72 +42,78 @@ def swap_server():
         next_server = ip_5_server
 
 
+# Processes incoming ARP requests and responds with the correct MAC address
+# If the request is for the virtual IP, sets up flow rules to forward traffic
+# Implements round-robin load balancing between the two hosts
 def arp_handler(event):
-    log.info(f"PRINTIN CONNECTIONS")
     packet = event.parsed
-    if packet.type == packet.ARP_TYPE:
-        arp_request = packet.find("arp")
-        if arp_request is not None and arp_request.opcode == arp_request.REQUEST:
-            log.info(
-                f"ARP request: Who has {arp_request.protodst}? Tell {arp_request.protosrc}"
-            )
-            src_ip = arp_request.protosrc
-            if  arp_request.protodst == virtual_ip and src_ip not in [ip_5_server, ip_6_server]:
-                eth_addr = ip_to_mac[next_server]
-                dest_ip_addr = next_server
-                map_request_flow = of.ofp_flow_mod()
-                # msg.data = event.ofp
-                map_request_flow.match.dl_type = 0x0800
-                map_request_flow.match.nw_dst = virtual_ip
-                map_request_flow.match.nw_src = src_ip
-                map_request_flow.actions.append(
-                    of.ofp_action_nw_addr.set_dst(dest_ip_addr)
-                )
-                map_request_flow.actions.append(
-                    of.ofp_action_output(port=ip_to_port[next_server])
-                )
-                event.connection.send(map_request_flow)
+    # Only handle ARP packets
+    if packet.type != packet.ARP_TYPE:
+        return
+    arp_request = packet.find("arp")
 
-                map_response_flow = of.ofp_flow_mod()
-                # msg.data = event.ofp
-                map_response_flow.match.dl_type = 0x0800
-                map_response_flow.match.nw_dst = src_ip
-                map_response_flow.match.nw_src = next_server
-                map_response_flow.actions.append(
-                    of.ofp_action_nw_addr.set_src(virtual_ip)
-                )
-                map_response_flow.actions.append(
-                    of.ofp_action_output(port=ip_to_port[src_ip])
-                )
-                event.connection.send(map_response_flow)
+    # Only handle ARP requests
+    if arp_request is None and arp_request.opcode != arp_request.REQUEST:
+        return
 
-                swap_server()
-            else:
-                eth_addr = ip_to_mac[arp_request.protodst]
-                dest_ip_addr = arp_request.protodst
+    arp_src_ip = arp_request.protosrc
+    arp_dest_ip = arp_request.protodst
+    log.info(f"ARP request: NEED {arp_dest_ip} FROM {arp_src_ip}")
+    # If the request is to the virtual IP then add flows to facilitate the ping
+    if arp_dest_ip == virtual_ip:
+        dest_ip_addr = next_server
+        eth_addr = ip_to_mac[dest_ip_addr]
+        swap_server()
 
-            arp_reply = arp()
-            arp_reply.hwsrc = eth_addr
-            arp_reply.hwdst = packet.src
-            arp_reply.opcode = arp.REPLY
-            arp_reply.protosrc = arp_request.protodst
-            arp_reply.protodst = packet.payload.protosrc
-            ether = ethernet()
-            ether.type = ethernet.ARP_TYPE
-            ether.dst = packet.src
-            ether.src = eth_addr
-            ether.payload = arp_reply
-            map_response = of.ofp_packet_out()
-            map_response.data = ether.pack()
-            map_response.in_port = event.port
-            map_response.actions.append(of.ofp_action_output(port =
-                                                      of.OFPP_IN_PORT))
-            event.connection.send(map_response)
+        # Add flow for the ping request
+        map_request_flow = of.ofp_flow_mod()
+        map_request_flow.match.dl_type = 0x0800
+        map_request_flow.match.nw_dst = virtual_ip
+        map_request_flow.match.nw_src = arp_src_ip
+        map_request_flow.actions.append(of.ofp_action_nw_addr.set_dst(dest_ip_addr))
+        map_request_flow.actions.append(
+            of.ofp_action_output(port=ip_to_port[dest_ip_addr])
+        )
+        event.connection.send(map_request_flow)
 
+        # Add flow for the ping response this will remap the source IP address
+        # to be the
+        map_response_flow = of.ofp_flow_mod()
+        map_response_flow.match.dl_type = 0x0800
+        map_response_flow.match.nw_dst = arp_src_ip
+        map_response_flow.match.nw_src = dest_ip_addr
+        map_response_flow.actions.append(of.ofp_action_nw_addr.set_src(virtual_ip))
+        map_response_flow.actions.append(
+            of.ofp_action_output(port=ip_to_port[arp_src_ip])
+        )
+        event.connection.send(map_response_flow)
+
+    else:
+        # If the IP is not virtual then just resolve it to the correct MAC Address
+        eth_addr = ip_to_mac[arp_request.protodst]
+        dest_ip_addr = arp_request.protodst
+
+    # Respond to the ARP with the MAC address in the eth_addr variable.
+    arp_reply = arp()
+    arp_reply.hwsrc = eth_addr
+    arp_reply.hwdst = packet.src
+    arp_reply.opcode = arp.REPLY
+    arp_reply.protosrc = arp_request.protodst
+    arp_reply.protodst = packet.payload.protosrc
+    ether = ethernet()
+    ether.type = ethernet.ARP_TYPE
+    ether.dst = packet.src
+    ether.src = eth_addr
+    ether.payload = arp_reply
+    map_response = of.ofp_packet_out()
+    map_response.data = ether.pack()
+    map_response.in_port = event.port
+    map_response.actions.append(of.ofp_action_output(port=of.OFPP_IN_PORT))
+    event.connection.send(map_response)
 
 
 # Launch POX component
 def launch():
+    # Listen for the PacketIn Event in order to respond to ARP requests
     core.openflow.addListenerByName("PacketIn", arp_handler)
-    log.info("ARP logger running...")
-
+    log.info("ARP Responder running...")
