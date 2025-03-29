@@ -3,6 +3,12 @@
 # Author: Tim Blamires
 # Date: 3/29/25
 #
+# A simple round-robin load balancing POX component
+# Handles ARP requests and responds with the correct MAC address
+# If the request is for the virtual IP, installs OpenFlow rules to forward traffic
+# Dynamically redirects traffic between two backend servers (10.0.0.5 and 10.0.0.6)
+# Ensures consistent client-server communication by rewriting IP addresses in packets
+
 from pox.core import core
 import pox.openflow.libopenflow_01 as of
 from pox.lib.packet.arp import arp, ethernet
@@ -10,10 +16,13 @@ from pox.lib.addresses import IPAddr, EthAddr
 
 log = core.getLogger()
 
+# Virtual IP and backend servers for load balancing
 virtual_ip = IPAddr("10.0.0.10")
 ip_5_server = IPAddr("10.0.0.5")
 ip_6_server = IPAddr("10.0.0.6")
 next_server = ip_5_server
+
+# Mapping of IPs to MAC addresses
 ip_to_mac = {
     IPAddr("10.0.0.1"): EthAddr("00:00:00:00:00:01"),
     IPAddr("10.0.0.2"): EthAddr("00:00:00:00:00:02"),
@@ -23,6 +32,7 @@ ip_to_mac = {
     IPAddr("10.0.0.6"): EthAddr("00:00:00:00:00:06"),
 }
 
+# Mapping of IPs to switch ports
 ip_to_port = {
     IPAddr("10.0.0.1"): 1,
     IPAddr("10.0.0.2"): 2,
@@ -33,6 +43,7 @@ ip_to_port = {
 }
 
 
+# Alternates the next_server between ip_5_server and ip_6_server for load balancing
 def swap_server():
     global next_server
     if next_server == ip_5_server:
